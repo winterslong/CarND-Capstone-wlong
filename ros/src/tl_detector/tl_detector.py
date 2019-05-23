@@ -113,15 +113,15 @@ class TLDetector(object):
 
         if self.wl_debug_lights < 3:
             self.wl_debug_lights += 1
-            rospy.loginfo("[tl_detector] %s traffic_lights_cb stoplines.len=%s ", self.wl_debug_lights, len(self.config['stop_line_positions']))
+            rospy.logdebug("[tl_detector] %s traffic_lights_cb stoplines.len=%s ", self.wl_debug_lights, len(self.config['stop_line_positions']))
             for n in range(len(self.config['stop_line_positions'])):
-                rospy.loginfo("[tl_detector] stop_line_positions[%s] : x=%s, y=%s ", n, 
+                rospy.logdebug("[tl_detector] stop_line_positions[%s] : x=%s, y=%s ", n, 
                                                 self.config['stop_line_positions'][n][0],
                                                 self.config['stop_line_positions'][n][1])
-            rospy.loginfo("[tl_detector] %s traffic_lights_cb self.lights.len=%s ", 
+            rospy.logdebug("[tl_detector] %s traffic_lights_cb self.lights.len=%s ", 
                         self.wl_debug_lights, len(self.lights))
             for n in range(len(self.lights)):
-                rospy.loginfo("[tl_detector] lights[%s] : [%s, %s], ", n, 
+                rospy.logdebug("[tl_detector] lights[%s] : [%s, %s], ", n, 
                                                 self.lights[n].pose.pose.position.x,
                                                 self.lights[n].pose.pose.position.y)
 
@@ -274,34 +274,34 @@ class TLDetector(object):
         """
 
         if self.pose is not None and (self.has_image or self.use_ground_truth):
-            tl_id = self.get_closest_waypoint(self.pose.pose, self.lights)
-            rospy.logdebug("[TL_DETECTOR] Closest TL id: %s.", tl_id)
-            if (tl_id >= 0):
+            tl_idx = self.get_closest_waypoint(self.pose.pose, self.lights)
+            rospy.logdebug("[TL_DETECTOR] Closest TL id: %s.", tl_idx)
+            if (tl_idx >= 0):
 
-                tl = self.lights[tl_id]
-                stop_line = self.config['stop_line_positions'][tl_id]
+                tl_wp = self.lights[tl_idx]
+                stop_line = self.config['stop_line_positions'][tl_idx]
 
                 # Convert stop_line to pseudo pose object for easier handling
                 stop_line_pose = Pose()
                 stop_line_pose.position.x = stop_line[0]
                 stop_line_pose.position.y = stop_line[1]
 
-                wp_id = self.get_closest_waypoint(stop_line_pose, self.base_waypoints)
-                rospy.logdebug("[TL_DETECTOR] Closest WP id: %s.", wp_id)
-
-                if (wp_id == -1):
-                    rospy.logdebug("[TL_DETECTOR] Unable to determine valid TL id.")
+                stop_wp_idx = self.get_closest_waypoint(stop_line_pose, self.base_waypoints)
+                if (stop_wp_idx == -1):
+                    rospy.logdebug("[UNET] Unable to determine valid TL idx.")
                     return -1, TrafficLight.UNKNOWN
+                else:
+                    rospy.logdebug("[UNET] Closest TL WP idx: %s.", stop_wp_idx)
 
-                closest_wp = self.base_waypoints[wp_id]
-                waypoint_dist = self.dist_to_point(closest_wp.pose.pose, tl.pose.pose)
-                car_dist = self.dist_to_point(self.pose.pose, stop_line_pose)
+                closest_wp = self.base_waypoints[stop_wp_idx]
+                stop_tl_dist = self.dist_to_point(closest_wp.pose.pose, tl_wp.pose.pose)
+                car_stop_dist = self.dist_to_point(self.pose.pose, stop_line_pose)
                 state = TrafficLight.UNKNOWN
                 
                 if self.use_ground_truth:
-                    state = tl.state
+                    state = tl_wp.state
                     rospy.loginfo("[TL_DETECTOR] Using ground-truth information. Nearest TL-state is: %s", state)
-                elif (car_dist < self.distance_to_tl_threshold):
+                elif (car_stop_dist < self.distance_to_tl_threshold):
                     start = time.time()
                     cv_image = self.bridge.imgmsg_to_cv2(self.camera_image, self.color_mode)
                     tl_image = self.detect_traffic_light(cv_image)
@@ -310,19 +310,26 @@ class TLDetector(object):
                     if tl_image is not None:
                         state = self.light_classifier.get_classification(tl_image)
                         state = state if (state != self.invalid_class_number) else TrafficLight.UNKNOWN
-                        rospy.loginfo("[TL_DETECTOR] Nearest TL-state is: %s, car dist=%s", state, car_dist)
+                        rospy.loginfo("[TL_DETECTOR] Nearest TL-state is: %s, car dist=%s", state, car_stop_dist)
                         end2 = time.time()
                         rospy.loginfo("Classify Time:%f s", end2 - end1)
                     else:
-                        rospy.loginfo("[TL_DETECTOR] No TL is detected, car dist=%s", car_dist)
+                        rospy.loginfo("[TL_DETECTOR] No TL is detected, car dist=%s", car_stop_dist)
                 else:
                     rospy.loginfo("[TL_DETECTOR] Next TL too far yet.")
                     state = TrafficLight.UNKNOWN
 
-                rospy.logdebug("[TL_DETECTOR] Upcoming TL ID: %s, State: %s, car dist=%s. ", tl_id, state, car_dist)
-                rospy.logdebug("[TL_DETECTOR] Upcoming TL stop line position: x: %s | y: %s. car dist=%s", 
-                                stop_line[0], stop_line[1], car_dist)
-                return wp_id, state
+                car_wp_idx = self.get_closest_waypoint(self.pose.pose, self.base_waypoints)
+                tl_wp_idx = self.get_closest_waypoint(tl_wp.pose.pose, self.base_waypoints)
+
+                rospy.loginfo("[UNET] WLONG Car pos (%s): x-%s, y-%s; car_stop_dist=%s", 
+                                car_wp_idx, self.pose.pose.position.x, self.pose.pose.position.y, car_stop_dist)
+                rospy.loginfo("[UNET] WLONG Stopline(%s): x-%s, y-%s; stop_tl_dist=%s", 
+                                stop_wp_idx, stop_line[0], stop_line[1], stop_tl_dist)
+                rospy.loginfo("[UNET] WLONG Light   (%s): x-%s, y-%s; Upcoming TL ID:%s, State:%s", 
+                                tl_wp_idx, tl_wp.pose.pose.position.x, tl_wp.pose.pose.position.y, 
+                                tl_idx, state)                                
+                return stop_wp_idx, state
 
             else:
                 rospy.logwarn("[TL_DETECTOR] No trafic light found!")
