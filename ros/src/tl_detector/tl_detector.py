@@ -15,6 +15,8 @@ import yaml
 import sys
 import time
 from keras import backend as K
+from light_classification.tl_sim_classifier import TLSimClassifier
+from light_classification.tl_model_detector import TLModelDetector
 
 STATE_COUNT_THRESHOLD = 1
 SMOOTH = 1.
@@ -73,6 +75,14 @@ class TLDetector(object):
         self.projection_threshold = self.config['tl']['projection_threshold']
         self.projection_min = self.config['tl']['projection_min']
         self.color_mode = self.config['tl']['color_mode']
+
+
+        # Mobilenet Classifier Setup
+        self.light_sim_classifier = TLSimClassifier()
+        model_path = 'models/ssd_mobilenet_v1_coco_2018_01_28'
+        #self.detector_sim_model = TLModelDetector(model_path)
+
+        
 
         sub1 = rospy.Subscriber('/current_pose', PoseStamped, self.pose_cb)
         sub2 = rospy.Subscriber('/base_waypoints', Lane, self.base_waypoints_cb)
